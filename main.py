@@ -1163,25 +1163,32 @@ async def run_analysis_pipeline(recording_id: str, subject_id: str, device_id: s
     """
     print(f"[{device_id}] Starting analysis for {recording_id}")
     
-    loop = asyncio.get_running_loop()
+    # loop = asyncio.get_running_loop() # KOMENTAR DULU INI
+    
     try:
-        # [OPTIMASI] Gunakan run_in_executor dengan process_executor
-        # Ini akan melempar tugas ke CPU core lain
-        classification = await loop.run_in_executor(
-            process_executor,
-            analyze_recording_complete,
-            recording_id, 
-            subject_id, 
-            device_id
-        )
-        # Setelah selesai, update state (jika perlu) dan notify frontend
+        # --- PERUBAHAN DISINI: JANGAN PAKAI EXECUTOR DULU ---
+        # Kita panggil langsung fungsinya agar error-nya kelihatan di log utama
+        # dan tidak memakan RAM ganda untuk process baru.
+        print(f"[{device_id}] Running analysis SYNCHRONOUSLY to debug...")
+        
+        classification = analyze_recording_complete(recording_id, subject_id, device_id)
+        
+        # ----------------------------------------------------
+
         print(f"[{device_id}] Analysis finished. Result: {classification}")
 
         # Notify clients about history update
         await broadcast_to_all({"type": "history_updated"})
         
+        # Notify specific device about result
+        await broadcast_to_device(device_id, "analysis_complete", {
+            "recording_id": recording_id,
+            "classification": classification
+        })
+
     except Exception as e:
-        print(f"Analysis failed: {e}")
+        print(f"[{device_id}] CRITICAL ANALYSIS ERROR: {e}")
+        traceback.print_exc() # Ini wajib agar error terlihat di docker logs
 
     # try:
     #     result = await asyncio.to_thread(
